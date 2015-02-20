@@ -1,60 +1,126 @@
-/*!
- *  Echo v1.4.0
- *  Lazy-loading with data-* attributes, offsets and throttle options
- *  Project: https://github.com/toddmotto/echo
- *  by Todd Motto: http://toddmotto.com
- *  Copyright. MIT licensed.
- */
-window.Echo = (function (window, document, undefined) {
+/*! echo.js v1.6.0 | (c) 2015 @toddmotto | https://github.com/toddmotto/echo */
+(function (root, factory) {
+  if (typeof define === 'function' && define.amd) {
+    define(function() {
+      return factory(root);
+    });
+  } else if (typeof exports === 'object') {
+    module.exports = factory;
+  } else {
+    root.echo = factory(root);
+  }
+})(this, function (root) {
 
   'use strict';
 
-  var store = [], offset, throttle, poll;
+  var echo = {};
 
-  var _inView = function (el) {
-    var coords = el.getBoundingClientRect();
-    return ((coords.top >= 0 && coords.left >= 0 && coords.top) <= (window.innerHeight || document.documentElement.clientHeight) + parseInt(offset));
+  var callback = function () {};
+
+  var offset, poll, delay, useDebounce, unload;
+
+  var inView = function (element, view) {
+    var box = element.getBoundingClientRect();
+    return (box.right >= view.l && box.bottom >= view.t && box.left <= view.r && box.top <= view.b);
   };
 
-  var _pollImages = function () {
-    for (var i = store.length; i--;) {
-      var self = store[i];
-      if (_inView(self)) {
-        self.src = self.getAttribute('data-echo');
-        store.splice(i, 1);
+  var debounceOrThrottle = function () {
+    if(!useDebounce && !!poll) {
+      return;
+    }
+    clearTimeout(poll);
+    poll = setTimeout(function(){
+      echo.render();
+      poll = null;
+    }, delay);
+  };
+
+  echo.init = function (opts) {
+    opts = opts || {};
+    var offsetAll = opts.offset || 0;
+    var offsetVertical = opts.offsetVertical || offsetAll;
+    var offsetHorizontal = opts.offsetHorizontal || offsetAll;
+    var optionToInt = function (opt, fallback) {
+      return parseInt(opt || fallback, 10);
+    };
+    offset = {
+      t: optionToInt(opts.offsetTop, offsetVertical),
+      b: optionToInt(opts.offsetBottom, offsetVertical),
+      l: optionToInt(opts.offsetLeft, offsetHorizontal),
+      r: optionToInt(opts.offsetRight, offsetHorizontal)
+    };
+    delay = optionToInt(opts.throttle, 250);
+    useDebounce = opts.debounce !== false;
+    unload = !!opts.unload;
+    callback = opts.callback || callback;
+    echo.render();
+    if (document.addEventListener) {
+      root.addEventListener('scroll', debounceOrThrottle, false);
+      root.addEventListener('load', debounceOrThrottle, false);
+    } else {
+      root.attachEvent('onscroll', debounceOrThrottle);
+      root.attachEvent('onload', debounceOrThrottle);
+    }
+  };
+
+  echo.render = function () {
+    var nodes = document.querySelectorAll('img[data-echo], [data-echo-background]');
+    var length = nodes.length;
+    var src, elem;
+    var view = {
+      l: 0 - offset.l,
+      t: 0 - offset.t,
+      b: (root.innerHeight || document.documentElement.clientHeight) + offset.b,
+      r: (root.innerWidth || document.documentElement.clientWidth) + offset.r
+    };
+    for (var i = 0; i < length; i++) {
+      elem = nodes[i];
+      if (inView(elem, view)) {
+
+        if (unload) {
+          elem.setAttribute('data-echo-placeholder', elem.src);
+        }
+
+        if (elem.getAttribute('data-echo-background') !== null) {
+          elem.style.backgroundImage = "url(" + elem.getAttribute('data-echo-background') + ")";
+        }
+        else {
+          elem.src = elem.getAttribute('data-echo');
+        }
+
+        if (!unload) {
+          elem.removeAttribute('data-echo');
+        }
+
+        callback(elem, 'load');
+      }
+      else if (unload && !!(src = elem.getAttribute('data-echo-placeholder'))) {
+
+        if (elem.getAttribute('data-echo-background') !== null) {
+          elem.style.backgroundImage = "url(" + src + ")";
+        }
+        else {
+          elem.src = src;
+        }
+
+        elem.removeAttribute('data-echo-placeholder');
+        callback(elem, 'unload');
       }
     }
-  };
-
-  var _throttle = function () {
-    clearTimeout(poll);
-    poll = setTimeout(_pollImages, throttle);
-  };
-
-  var init = function (obj) {
-    var nodes = document.querySelectorAll('[data-echo]');
-    var opts = obj || {};
-    offset = opts.offset || 0;
-    throttle = opts.throttle || 250;
-
-    for (var i = 0; i < nodes.length; i++) {
-      store.push(nodes[i]);
+    if (!length) {
+      echo.detach();
     }
+  };
 
-    _throttle();
-
-    if (document.addEventListener) {
-      window.addEventListener('scroll', _throttle, false);
-      window.addEventListener('load', _throttle, false);
+  echo.detach = function () {
+    if (document.removeEventListener) {
+      root.removeEventListener('scroll', debounceOrThrottle);
     } else {
-      window.attachEvent('onscroll', _throttle);
-      window.attachEvent('onload', _throttle);
+      root.detachEvent('onscroll', debounceOrThrottle);
     }
+    clearTimeout(poll);
   };
 
-  return {
-    init: init,
-    render: _throttle
-  };
+  return echo;
 
-})(window, document);
+});
